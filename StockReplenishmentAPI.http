@@ -1,0 +1,6 @@
+@StockReplenishmentAPI_HostAddress = http://localhost:5240
+
+GET {{StockReplenishmentAPI_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
