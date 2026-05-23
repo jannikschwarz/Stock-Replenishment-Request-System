@@ -201,11 +201,11 @@
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "A:\\StockReplenishmentAPI\\StockReplenishmentAPI.csproj",
+      "projectUniqueName": "A:\\Stock-Replenishment-Request-System\\StockReplenishmentAPI.csproj",
       "projectName": "StockReplenishmentAPI",
-      "projectPath": "A:\\StockReplenishmentAPI\\StockReplenishmentAPI.csproj",
+      "projectPath": "A:\\Stock-Replenishment-Request-System\\StockReplenishmentAPI.csproj",
       "packagesPath": "C:\\Users\\Janni\\.nuget\\packages\\",
-      "outputPath": "A:\\StockReplenishmentAPI\\obj\\",
+      "outputPath": "A:\\Stock-Replenishment-Request-System\\obj\\",
       "projectStyle": "PackageReference",
       "configFilePaths": [
         "C:\\Users\\Janni\\AppData\\Roaming\\NuGet\\NuGet.Config"
