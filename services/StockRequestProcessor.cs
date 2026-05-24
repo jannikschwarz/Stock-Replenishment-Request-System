@@ -23,61 +23,130 @@ public class StockRequestProcessor : BackgroundService
     {
         while (!stoppenToken.IsCancellationRequested)
         {
-            Guid requestId = await _queue.DequeueAsync(stoppenToken);
-            using IServiceScope scope = _scopeFactory.CreateScope();
-            StockDbContext db = scope.ServiceProvider.GetRequiredService<StockDbContext>();
+            Guid requestId;
 
-            StockRequest? request = await db.StockRequests.Include(x => x.Items).FirstOrDefaultAsync(x => x.Id == requestId, stoppenToken);
+            try
+            {
+                requestId = await _queue.DequeueAsync(stoppenToken);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+
+            await ProcessRequest(requestId,stoppenToken);
+        }
+    }
+
+    private async Task ProcessRequest(Guid requestId, CancellationToken token)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<StockDbContext>();
+
+        try
+        {
+            var request = await db.StockRequests.Include(r => r.Items).FirstOrDefaultAsync(r => r.Id == requestId,token);
 
             if(request == null)
-                continue;
+                return;
 
-            request.Logs.Add($"System: Reuqest entered processing queue");
+            request.Logs.Add("System: Request entered processing queue");
+            await db.SaveChangesAsync(token);
 
-            await db.SaveChangesAsync(stoppenToken);
-
-            while(request.Status == RequestStatus.PendingReview)
+            while (!token.IsCancellationRequested)
             {
-                await Task.Delay(2000,stoppenToken);
-                await db.Entry(request).ReloadAsync(stoppenToken);
-            }
+                var status = await db.StockRequests.Where(r => r.Id == requestId).Select(r => r.Status).FirstOrDefaultAsync(token);
 
-            if(request.Status == RequestStatus.Denied)
-            {
-                request.Logs.Add("System: Request denied");
-
-                await db.SaveChangesAsync(stoppenToken);
-
-                continue;
-            }
-
-            request.Logs.Add("System: Starting fulfillment");
-            await db.SaveChangesAsync(stoppenToken);
-
-            while(request.Status == RequestStatus.Approved)
-            {
-                await db.Entry(request).ReloadAsync(stoppenToken);
-
-                if(request.ExpectedFulfullmentTime == null)
+                if(status == RequestStatus.Denied)
                 {
-                    request.Logs.Add("System: Missing fulfillment ETA");
-                    request.Status = RequestStatus.Failed;
-                    await db.SaveChangesAsync(stoppenToken);
-                    break;
+                    await AddLog(requestId,"System: Request denied",token);
+                    return;
                 }
 
-                TimeSpan remaining = request.ExpectedFulfullmentTime.Value - DateTime.UtcNow;
-
-                if(remaining <= TimeSpan.Zero)
-                {
-                    request.Fulfill();
-                    request.Logs.Add("System: Request fulfilled");
-                    await db.SaveChangesAsync(stoppenToken);
+                if(status != RequestStatus.PendingReview)
                     break;
+                
+                await Task.Delay(1000,token);
+            }
+
+            await AddLog(requestId,"System: Starting fulfillment",token);
+
+            for(int i = 0; i < 30 && !token.IsCancellationRequested; i++)
+            {
+                var snapshot = await db.StockRequests.Where(r => r.Id == requestId).Select(r => new
+                {
+                    r.Status,r.ExpectedFulfullmentTime
+                }).FirstOrDefaultAsync(token);
+
+                if(snapshot == null)
+                    return;
+
+                if(snapshot.Status != RequestStatus.Approved)
+                    return;
+
+                if(snapshot.ExpectedFulfullmentTime == null)
+                {
+                    await Fail(requestId,"System: Missing fulfillment ETA",token);
+                    return;
                 }
 
-                await Task.Delay(1000,stoppenToken);
+                if(snapshot.ExpectedFulfullmentTime <= DateTime.UtcNow)
+                {
+                    await Fulfill(requestId,token);
+                    return;
+                }
+
+                await Task.Delay(1000,token);
             }
+
+            await Fail(requestId,"System: Request timed out",token);
         }
+        catch (Exception ex)
+        {
+            Console.WriteLine(ex);
+            return;
+        }
+    }
+
+    private async Task AddLog(Guid requestId, string message, CancellationToken token)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<StockDbContext>();
+
+        var request = await db.StockRequests.FindAsync([requestId], token);
+        if (request == null) return;
+
+        request.Logs.Add(message);
+        await db.SaveChangesAsync(token);
+    }
+
+    private async Task Fail(Guid requestId, string message, CancellationToken token)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<StockDbContext>();
+
+        var request = await db.StockRequests.FindAsync([requestId], token);
+        if (request == null) 
+            return;
+
+        request.Status = RequestStatus.Failed;
+        request.Logs.Add(message);
+
+        await db.SaveChangesAsync(token);
+    }
+
+    private async Task Fulfill(Guid requestId, CancellationToken token)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<StockDbContext>();
+
+        var request = await db.StockRequests.FindAsync([requestId], token);
+        if (request == null) 
+            return;
+
+        request.Fulfill();
+        request.Logs.Add("System: Request fulfilled");
+
+        await db.SaveChangesAsync(token);
     }
 }

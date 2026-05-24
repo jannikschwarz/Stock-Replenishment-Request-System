@@ -54,6 +54,10 @@ public class StockRequest
 
     public string? DenialReason {get;set;}
 
+    private StockRequest()
+    {
+    }
+
     public StockRequest(
         string worker,
         Priority priority,

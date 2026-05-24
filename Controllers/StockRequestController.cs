@@ -39,7 +39,24 @@ public class StockRequestController : ControllerBase
 
         await _db.SaveChangesAsync();
 
+        var dbId = _db.ContextId;
+        Console.WriteLine(dbId);
+        
+
         await _queue.QueueRequest(request.Id);
+
+        return Ok(request);
+    }
+
+    [HttpGet(Name = "Get")]
+    public async Task<IActionResult> GetRequest(
+        [FromQuery] Guid id
+    )
+    {
+        var request = await _db.StockRequests.FindAsync(id);
+
+        if(request == null)
+            return NotFound();
 
         return Ok(request);
     }
